@@ -89,6 +89,8 @@ struct GraphicsFunctions {
 	void     (*DrawSprite)(ISprite* sprite, int animation, int frame, int x, int y, bool flipX, bool flipY);
     void     (*DrawSpritePart)(ISprite* sprite, int animation, int frame, int sx, int sy, int sw, int sh, int x, int y, bool flipX, bool flipY);
 
+    void     (*DrawModel)(IModel *model);
+
     void     (*MakeFrameBufferID)(ISprite* sprite, AnimFrame* frame);
 };
 

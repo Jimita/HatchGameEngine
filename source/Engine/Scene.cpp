@@ -1750,6 +1750,15 @@ PUBLIC STATIC void Scene::DisposeInScope(Uint32 scope) {
         delete Scene::SpriteList[i]->AsSprite;
         Scene::SpriteList[i] = NULL;
     }
+    // Models
+    for (size_t i = 0, i_sz = Scene::ModelList.size(); i < i_sz; i++) {
+        if (!Scene::ModelList[i]) continue;
+        if (Scene::ModelList[i]->UnloadPolicy > scope) continue;
+
+        Scene::ModelList[i]->AsModel->Dispose();
+        delete Scene::ModelList[i]->AsModel;
+        Scene::ModelList[i] = NULL;
+    }
     // Sounds
     // AudioManager::AudioPauseAll();
     AudioManager::ClearMusic();
@@ -1814,6 +1823,7 @@ PUBLIC STATIC void Scene::Dispose() {
     // Dispose of all resources
     Scene::ImageList.clear();
     Scene::SpriteList.clear();
+    Scene::ModelList.clear();
     Scene::SoundList.clear();
     Scene::MusicList.clear();
     Scene::MediaList.clear();

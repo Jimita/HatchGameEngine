@@ -1,6 +1,7 @@
 #if INTERFACE
 #include <Engine/Bytecode/Types.h>
 #include <Engine/ResourceTypes/ISprite.h>
+#include <Engine/ResourceTypes/IModel.h>
 
 class StandardLibrary {
 public:
@@ -153,6 +154,16 @@ namespace LOCAL {
 
         return Scene::SpriteList[where]->AsSprite;
     }
+    inline IModel*        GetModel(VMValue* args, int index, Uint32 threadID) {
+        int where = GetInteger(args, index, threadID);
+        if (where < 0 || where > (int)Scene::ModelList.size())
+            BytecodeObjectManager::Threads[threadID].ThrowError(true,
+                "Model index \"%d\" outside bounds of list.", where);
+
+        if (!Scene::ModelList[where]) return NULL;
+
+        return Scene::ModelList[where]->AsModel;
+    }
     inline MediaBag*       GetVideo(VMValue* args, int index, Uint32 threadID) {
         int where = GetInteger(args, index, threadID);
         if (where < 0 || where > (int)Scene::MediaList.size())
@@ -187,6 +198,10 @@ PUBLIC STATIC ObjArray* StandardLibrary::GetArray(VMValue* args, int index) {
 PUBLIC STATIC ISprite*  StandardLibrary::GetSprite(VMValue* args, int index) {
     Uint32 threadID = 0;
     return LOCAL::GetSprite(args, index, threadID);
+}
+PUBLIC STATIC IModel*  StandardLibrary::GetModel(VMValue* args, int index) {
+    Uint32 threadID = 0;
+    return LOCAL::GetModel(args, index, threadID);
 }
 
 PUBLIC STATIC void      StandardLibrary::CheckArgCount(int argCount, int expects) {
@@ -451,6 +466,14 @@ VMValue Draw_Sprite(int argCount, VMValue* args, Uint32 threadID) {
 
     // Graphics::SetBlendColor(1.0, 1.0, 1.0, 1.0);
     Graphics::DrawSprite(sprite, animation, frame, x, y, flipX, flipY);
+    return NULL_VAL;
+}
+VMValue Draw_Model(int argCount, VMValue* args, Uint32 threadID) {
+    CHECK_ARGCOUNT(1);
+
+    IModel* model = Scene::ModelList[GetInteger(args, 0, threadID)]->AsModel;
+
+    Graphics::DrawModel(model);
     return NULL_VAL;
 }
 VMValue Draw_Image(int argCount, VMValue* args, Uint32 threadID) {
@@ -2100,8 +2123,25 @@ VMValue Resources_LoadShader(int argCount, VMValue* args, Uint32 threadID) {
 }
 VMValue Resources_LoadModel(int argCount, VMValue* args, Uint32 threadID) {
     CHECK_ARGCOUNT(2);
-    printf("Filename: %s (%s)\n", GetString(args, 0, threadID), GetDecimal(args, 1, threadID) == 0 ? "SCOPE_SCENE" : "SCOPE_GAME");
-    return INTEGER_VAL(-1);
+    char*  filename = GetString(args, 0, threadID);
+
+    ResourceType* resource = new ResourceType;
+    resource->FilenameHash = CRC32::EncryptString(filename);
+    resource->UnloadPolicy = GetInteger(args, 1, threadID);
+
+    // size_t listSz = Scene::ModelList.size();
+    // for (size_t i = 0; i < listSz; i++)
+    //     if (Scene::ModelList[i]->FilenameHash == resource->FilenameHash)
+    //         return INTEGER_VAL((int)i);
+    size_t index = 0;
+    bool emptySlot = false;
+    vector<ResourceType*>* list = &Scene::ModelList;
+    if (GetResourceListSpace(list, resource, &index, &emptySlot))
+        return INTEGER_VAL((int)index);
+    else if (emptySlot) (*list)[index] = resource; else list->push_back(resource);
+
+    resource->AsModel = new IModel(filename);
+    return INTEGER_VAL((int)index);
 }
 VMValue Resources_LoadMusic(int argCount, VMValue* args, Uint32 threadID) {
     CHECK_ARGCOUNT(2);
@@ -3486,6 +3526,7 @@ PUBLIC STATIC void StandardLibrary::Link() {
     // #region Draw
     INIT_CLASS(Draw);
     DEF_NATIVE(Draw, Sprite);
+    DEF_NATIVE(Draw, Model);
     DEF_NATIVE(Draw, Image);
     DEF_NATIVE(Draw, ImagePart);
     DEF_NATIVE(Draw, ImageSized);

@@ -2,6 +2,7 @@
 #include <Engine/Includes/Standard.h>
 #include <Engine/Includes/StandardSDL2.h>
 #include <Engine/ResourceTypes/ISprite.h>
+#include <Engine/ResourceTypes/IModel.h>
 #include <Engine/Rendering/D3D/D3DShader.h>
 #include <Engine/Rendering/Texture.h>
 #include <Engine/Includes/HashMap.h>
@@ -188,13 +189,13 @@ void        D3D_MakeShapeBuffers() {
     buffer = D3D_BufferCircleFill;
     buffer[0] = Vertex { 0.0f, 0.0f, 0.0f, 0xFFFFFFFF, 0.0f, 0.0f };
     for (int i = 0; i < 361; i++) {
-        buffer[i + 1] = Vertex { cos(i * M_PI / 180.0f), sin(i * M_PI / 180.0f), 0.0f, 0xFFFFFFFF, 0.0f, 0.0f };
+        buffer[i + 1] = Vertex { (float)cos(i * M_PI / 180.0f), (float)sin(i * M_PI / 180.0f), 0.0f, 0xFFFFFFFF, 0.0f, 0.0f };
     }
 
     D3D_BufferCircleStroke = (Vertex*)Memory::TrackedMalloc("D3DRenderer::D3D_BufferCircleStroke", 361 * sizeof(Vertex));
     buffer = (Vertex*)D3D_BufferCircleStroke;
     for (int i = 0; i < 361; i++) {
-        buffer[i + 0] = Vertex { cos(i * M_PI / 180.0f), sin(i * M_PI / 180.0f), 0.0f, 0xFFFFFFFF, 0.0f, 0.0f };
+        buffer[i + 0] = Vertex { (float)cos(i * M_PI / 180.0f), (float)sin(i * M_PI / 180.0f), 0.0f, 0xFFFFFFFF, 0.0f, 0.0f };
     }
 
     D3D_BufferSquareFill = (Vertex*)Memory::TrackedMalloc("D3DRenderer::D3D_BufferSquareFill", 4 * sizeof(Vertex));
@@ -672,6 +673,16 @@ void        D3D_EndDrawShape(Vertex* shapeBuffer, D3DPRIMITIVETYPE prim, int tri
         D3D_SetError("DrawPrimitiveUP() %s", result);
 }
 
+void        D3D_BeginDrawModelPrimitive(Vertex* shapeBuffer, int vertexCount) {
+    D3D_Predraw();
+    D3D_SetBlendMode();
+}
+void        D3D_EndDrawModelPrimitive(Vertex* shapeBuffer, D3DPRIMITIVETYPE prim, int triangleCount) {
+    HRESULT result = IDirect3DDevice9_DrawPrimitiveUP(renderData->Device, prim, triangleCount, shapeBuffer, sizeof(Vertex));
+    if (FAILED(result))
+        D3D_SetError("DrawModelPrimitiveUP() %s", result);
+}
+
 // Initialization and disposal functions
 PUBLIC STATIC void     D3DRenderer::Init() {
     Graphics::PreferredPixelFormat = SDL_PIXELFORMAT_ARGB8888;
@@ -893,6 +904,9 @@ PUBLIC STATIC void     D3DRenderer::SetGraphicsFunctions() {
     Graphics::Internal.DrawTexture = D3DRenderer::DrawTexture;
     Graphics::Internal.DrawSprite = D3DRenderer::DrawSprite;
     Graphics::Internal.DrawSpritePart = D3DRenderer::DrawSpritePart;
+
+    // Model drawing functions
+    Graphics::Internal.DrawModel = D3DRenderer::DrawModel;
 }
 PUBLIC STATIC void     D3DRenderer::Dispose() {
     Memory::Free(D3D_BufferCircleFill);
@@ -1065,7 +1079,7 @@ PUBLIC STATIC void     D3DRenderer::UpdateClipRect() {
     }
 }
 PUBLIC STATIC void     D3DRenderer::UpdateOrtho(float left, float top, float right, float bottom) {
-    Matrix4x4::Ortho(Scene::Views[Scene::ViewCurrent].BaseProjectionMatrix, left, right, top, bottom, 500.0f, -500.0f);
+    Matrix4x4::Ortho(Scene::Views[Scene::ViewCurrent].BaseProjectionMatrix, left, right, top, bottom, 1500.0f, -500.0f);
     Matrix4x4::Copy(Scene::Views[Scene::ViewCurrent].ProjectionMatrix, Scene::Views[Scene::ViewCurrent].BaseProjectionMatrix);
 
     if (D3D_PixelPerfectScale) {
@@ -1210,6 +1224,19 @@ PUBLIC STATIC void     D3DRenderer::SetBlendMode(int srcC, int dstC, int srcA, i
 }
 PUBLIC STATIC void     D3DRenderer::SetLineWidth(float n) {
     // glLineWidth(n);
+}
+void D3D_DecomposeVertexColors(IColor* color1, IColor* color2, IColor* color3, Uint32 *dest) {
+#define DECOMPOSE(colsrc, coldest) { \
+    int hr = (int)(colsrc->r * 0xFF) << 16; \
+    int hg = (int)(colsrc->g * 0xFF) << 8; \
+    int hb = (int)(colsrc->b * 0xFF); \
+    coldest = (0xFF000000 | hr | hg | hb); } \
+
+    DECOMPOSE(color1, dest[0]);
+    DECOMPOSE(color2, dest[1]);
+    DECOMPOSE(color3, dest[2]);
+
+#undef DECOMPOSE
 }
 
 // Primitive drawing functions
@@ -1368,6 +1395,91 @@ PUBLIC STATIC void     D3DRenderer::DrawSpritePart(ISprite* sprite, int animatio
             sw, sh,
             flipX, flipY);
     Graphics::Restore();
+}
+
+// Model drawing functions
+PUBLIC STATIC void     D3DRenderer::DrawModel(IModel* model) {
+    //Log::Print(Log::LOG_INFO, "draw da model %d", model->MeshCount);
+    for (int meshIndex = 0; meshIndex < model->MeshCount; meshIndex++) {
+        //Log::Print(Log::LOG_INFO, "draw da mesh %d %d", meshIndex, model->FaceCount[meshIndex]);
+
+        // Bind the texture
+        if (model->HasTextureInMesh(meshIndex))
+            D3D_BindTexture(((Image*)model->Materials[meshIndex].Tex)->TexturePtr, 0);
+        else
+            D3D_BindTexture(NULL, 0);
+
+        for (int faceIndex = 0; faceIndex < model->FaceCount[meshIndex]; faceIndex++) {
+            IFace *face = &model->Faces[meshIndex][faceIndex];
+
+            /*
+            Log::Print(Log::LOG_INFO, "Vertices: %d %d %d", face->Vertices[0], face->Vertices[1], face->Vertices[2]);
+            Log::Print(Log::LOG_INFO, "TexCoords: %d %d %d", face->TexCoords[0], face->TexCoords[1], face->TexCoords[2]);
+            Log::Print(Log::LOG_INFO, "Colors: %d %d %d", face->Colors[0], face->Colors[1], face->Colors[2]);
+            */
+
+            // Vertices
+            IVertex *v1 = &model->Vertices[meshIndex][face->Vertices[0]];
+            IVertex *v2 = &model->Vertices[meshIndex][face->Vertices[1]];
+            IVertex *v3 = &model->Vertices[meshIndex][face->Vertices[2]];
+
+            // Normals
+            float n[3][3];
+            if (model->HasNormalsInMesh(meshIndex)) {
+                for (int i = 0; i < 3; i++)
+                {
+                    IVertex *normal = &model->Normals[meshIndex][face->Normals[i]];
+                    n[i][0] = normal->x;
+                    n[i][1] = normal->y;
+                    n[i][2] = normal->z;
+                }
+            } else {
+                for (int i = 0; i < 3; i++)
+                    for (int j = 0; j < 3; j++)
+                        n[i][j] = 1.0f;
+            }
+
+            // Texture coordinates
+            float u[3];
+            float v[3];
+            if (model->HasTexturesInMesh(meshIndex)) {
+                for (int i = 0; i < 3; i++) {
+                    ITexCoord *t = &model->UVs[meshIndex][face->TexCoords[i]];
+                    u[i] = t->u;
+                    v[i] = t->v;
+                }
+            } else {
+                for (int i = 0; i < 3; i++)
+                    u[i] = v[i] = 0.0f;
+            }
+
+            Uint32 colors[3];
+            if (model->HasColorsInMesh(meshIndex)) {
+                D3D_DecomposeVertexColors(
+                    &model->Colors[meshIndex][face->Colors[0]],
+                    &model->Colors[meshIndex][face->Colors[1]],
+                    &model->Colors[meshIndex][face->Colors[2]],
+                colors);
+            } else
+                colors[0] = colors[1] = colors[2] = 0xFFFFFFFF;
+
+            // Make D3D triangle
+            Vertex vertices[3];
+            vertices[0] = Vertex { v1->x, -v1->y, v1->z, colors[0], u[0], v[0] };
+            vertices[1] = Vertex { v2->x, -v2->y, v2->z, colors[1], u[1], v[1] };
+            vertices[2] = Vertex { v3->x, -v3->y, v3->z, colors[2], u[2], v[2] };
+
+            D3D_BeginDrawModelPrimitive(vertices, 3);
+
+            D3DMATRIX matrix;
+            memcpy(&matrix.m, Graphics::ModelViewMatrix.top()->Values, sizeof(float) * 16);
+            IDirect3DDevice9_SetTransform(renderData->Device, D3DTS_VIEW, &matrix);
+
+            D3D_EndDrawModelPrimitive(vertices, D3DPT_TRIANGLEFAN, 1);
+        }
+    }
+
+    D3D_BindTexture(NULL, 0);
 }
 
 /*

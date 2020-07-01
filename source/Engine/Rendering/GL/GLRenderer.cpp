@@ -2,6 +2,7 @@
 #include <Engine/Includes/Standard.h>
 #include <Engine/Includes/StandardSDL2.h>
 #include <Engine/ResourceTypes/ISprite.h>
+#include <Engine/ResourceTypes/IModel.h>
 #include <Engine/Math/Matrix4x4.h>
 #include <Engine/Rendering/GL/GLShader.h>
 #include <Engine/Rendering/Texture.h>
@@ -519,6 +520,9 @@ PUBLIC STATIC void     GLRenderer::SetGraphicsFunctions() {
     Graphics::Internal.DrawSprite = GLRenderer::DrawSprite;
     Graphics::Internal.DrawSpritePart = GLRenderer::DrawSpritePart;
     Graphics::Internal.MakeFrameBufferID = GLRenderer::MakeFrameBufferID;
+
+    // Model drawing functions
+    Graphics::Internal.DrawModel = GLRenderer::DrawModel;
 }
 PUBLIC STATIC void     GLRenderer::Dispose() {
     glDeleteBuffers(1, &BufferCircleFill);
@@ -899,6 +903,18 @@ PUBLIC STATIC void     GLRenderer::SetBlendMode(int srcC, int dstC, int srcA, in
 PUBLIC STATIC void     GLRenderer::SetLineWidth(float n) {
     glLineWidth(n); CHECK_GL();
 }
+void GL_DecomposeVertexColors(IColor* color1, IColor* color2, IColor* color3, float dest[3][3]) {
+#define DECOMPOSE(colsrc, coldest) { \
+    coldest[0] = colsrc->r; \
+    coldest[1] = colsrc->g; \
+    coldest[2] = colsrc->b; } \
+
+    DECOMPOSE(color1, dest[0]);
+    DECOMPOSE(color2, dest[1]);
+    DECOMPOSE(color3, dest[2]);
+
+#undef DECOMPOSE
+}
 
 // Primitive drawing functions
 PUBLIC STATIC void     GLRenderer::StrokeLine(float x1, float y1, float x2, float y2) {
@@ -1111,6 +1127,86 @@ PUBLIC STATIC void     GLRenderer::DrawSpritePart(ISprite* sprite, int animation
         sw, sh,
         x + fX * (sx + animframe.OffsetX),
         y + fY * (sy + animframe.OffsetY), fX * sw, fY * sh);
+}
+
+// Model drawing functions
+PUBLIC STATIC void     GLRenderer::DrawModel(IModel* model) {
+    for (int meshIndex = 0; meshIndex < model->MeshCount; meshIndex++) {
+        // Bind the texture
+        if (model->HasTextureInMesh(meshIndex))
+            GL_Predraw(((Image*)model->Materials[meshIndex].Tex)->TexturePtr);
+        else
+            GL_Predraw(NULL);
+
+        for (int faceIndex = 0; faceIndex < model->FaceCount[meshIndex]; faceIndex++) {
+            IFace *face = &model->Faces[meshIndex][faceIndex];
+
+            // Vertices
+            IVertex *v1 = &model->Vertices[meshIndex][face->Vertices[0]];
+            IVertex *v2 = &model->Vertices[meshIndex][face->Vertices[1]];
+            IVertex *v3 = &model->Vertices[meshIndex][face->Vertices[2]];
+
+            // Weird that both D3D and GL make the Y coordinates upside down
+            // with those COLLADA models when you'd expect GL the one to be
+            // the odd one about that...
+            GL_Vec3 vert[3];
+            vert[0] = { v1->x, -v1->y, v1->z };
+            vert[1] = { v2->x, -v2->y, v2->z };
+            vert[2] = { v3->x, -v3->y, v3->z };
+
+            // Normals
+            float n[3][3];
+            if (model->HasNormalsInMesh(meshIndex)) {
+                for (int i = 0; i < 3; i++)
+                {
+                    IVertex *normal = &model->Normals[meshIndex][face->Normals[i]];
+                    n[i][0] = normal->x;
+                    n[i][1] = normal->y;
+                    n[i][2] = normal->z;
+                }
+            } else {
+                for (int i = 0; i < 3; i++)
+                    for (int j = 0; j < 3; j++)
+                        n[i][j] = 1.0f;
+            }
+
+            // Texture coordinates
+            GL_Vec2 uv[3];
+            if (model->HasTexturesInMesh(meshIndex)) {
+                for (int i = 0; i < 3; i++) {
+                    ITexCoord *t = &model->UVs[meshIndex][face->TexCoords[i]];
+                    uv[i] = { t->u, t->v };
+                }
+            } else {
+                for (int i = 0; i < 3; i++)
+                    uv[i] = { 0.0f, 0.0f };
+            }
+
+            float colors[3][3];
+            if (model->HasColorsInMesh(meshIndex)) {
+                GL_DecomposeVertexColors(
+                    &model->Colors[meshIndex][face->Colors[0]],
+                    &model->Colors[meshIndex][face->Colors[1]],
+                    &model->Colors[meshIndex][face->Colors[2]],
+                colors);
+            } else {
+                colors[0][0] = colors[0][1] = colors[0][2] = 1.0f;
+                colors[1][0] = colors[1][1] = colors[1][2] = 1.0f;
+                colors[2][0] = colors[2][1] = colors[2][2] = 1.0f;
+            }
+
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            glVertexAttribPointer(GLRenderer::CurrentShader->LocPosition, 3, GL_FLOAT, GL_FALSE, 0, vert);
+
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            glVertexAttribPointer(GLRenderer::CurrentShader->LocTexCoord, 2, GL_FLOAT, GL_FALSE, 0, uv);
+
+            // How do I do vertex colors?
+            glUniform4f(GLRenderer::CurrentShader->LocColor, 1.0f, 1.0f, 1.0f, 1.0f);
+
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 3);
+        }
+    }
 }
 
 PUBLIC STATIC void     GLRenderer::MakeFrameBufferID(ISprite* sprite, AnimFrame* frame) {

@@ -525,6 +525,10 @@ PUBLIC STATIC void     Graphics::DrawSpritePart(ISprite* sprite, int animation, 
     Graphics::Internal.DrawSpritePart(sprite, animation, frame, sx, sy, sw, sh, x, y, flipX, flipY);
 }
 
+PUBLIC STATIC void     Graphics::DrawModel(IModel* model) {
+	Graphics::Internal.DrawModel(model);
+}
+
 PUBLIC STATIC void     Graphics::MakeFrameBufferID(ISprite* sprite, AnimFrame* frame) {
     if (Graphics::Internal.MakeFrameBufferID)
         Graphics::Internal.MakeFrameBufferID(sprite, frame);
