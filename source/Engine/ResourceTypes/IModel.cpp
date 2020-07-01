@@ -54,10 +54,8 @@ PUBLIC bool IModel::HasNormalsInMesh(int meshIndex) {
 }
 
 PUBLIC bool IModel::HasTextureInMesh(int meshIndex) {
-    //Log::Print(Log::LOG_INFO, "IModel::HasTextureInMesh %d", Materials.size());
     if (Materials.size() == 0)
         return false;
-    //Log::Print(Log::LOG_INFO, "IModel::HasTextureInMesh: %p", Materials[meshIndex].Tex);
     return (Materials[meshIndex].Tex != nullptr);
 }
 
